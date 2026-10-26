@@ -2,8 +2,12 @@
 
 Study and practice materials for primary school (Spain, 4º Primaria, bilingual Natural Science).
 
-Planned: an end-of-unit practice test for **Natural Science, Unit 1 – Living Organisms**,
-with explanations in Spanish and links to the review material.
+A practice test for **Natural Science 4º EP, Unit 1 – Living Organisms**: 32 questions in 9 parts (full test, short test or one topic at a time),
+score out of 10 plus the Spanish school grade, explanations of mistakes in Spanish and study notes with book pages.
+
+Live site: https://eldar7.github.io/escuela/
+
+Plain static files (`index.html`, `app.js`, `data.js`, `style.css`): no build step. Progress is stored only in the browser (localStorage).
 
 ## License
 

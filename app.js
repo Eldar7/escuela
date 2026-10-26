@@ -19,6 +19,35 @@ const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*
 const fmt = n => (Math.round(n * 100) / 100).toString().replace(/\.0+$/, '');
 const one = n => (Math.round(n * 10) / 10).toFixed(1);
 
+/* ---------- speech (browser text-to-speech) ---------- */
+const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+let speakingBtn = null;
+const plain = (s, lang) => String(s || '').replace(/<[^>]+>/g, '').replace(/\*\*?/g, '')
+  .replace(/___/g, lang === 'es' ? 'espacio en blanco' : 'blank')
+  .replace(/CO₂/g, lang === 'es' ? 'dióxido de carbono' : 'carbon dioxide').replace(/\s+/g, ' ').trim();
+function pickVoice(lang) {
+  const norm2 = v => v.lang.toLowerCase().replace('_', '-');
+  const vs = speechSynthesis.getVoices().filter(v => norm2(v).startsWith(lang));
+  for (const p of (lang === 'en' ? ['en-gb', 'en-us'] : ['es-es'])) { const v = vs.find(x => norm2(x) === p); if (v) return v; }
+  return vs[0] || null;
+}
+function stopSpeech() {
+  if (canSpeak) speechSynthesis.cancel();
+  if (speakingBtn) { speakingBtn.classList.remove('on'); speakingBtn.textContent = '▶'; speakingBtn = null; }
+}
+function speak(btn) {
+  if (!canSpeak) return;
+  const wasOn = btn === speakingBtn; stopSpeech(); if (wasOn) return;
+  const lang = btn.dataset.lang || 'en';
+  const u = new SpeechSynthesisUtterance(plain(btn.dataset.say, lang));
+  const v = pickVoice(lang); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = lang === 'es' ? 'es-ES' : 'en-GB';
+  u.rate = 0.9;
+  u.onend = u.onerror = () => { if (speakingBtn === btn) { btn.classList.remove('on'); btn.textContent = '▶'; speakingBtn = null; } };
+  speakingBtn = btn; btn.classList.add('on'); btn.textContent = '■'; speechSynthesis.speak(u);
+}
+const playBtn = (text, lang = 'en', label = 'Listen') => canSpeak && plain(text, lang)
+  ? `<button type="button" class="play" data-say="${esc(text)}" data-lang="${lang}" aria-label="${label}" title="${label}">▶</button>` : '';
+
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function shuffled(arr, seed) { const r = rng(seed), a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function hashStr(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
@@ -146,9 +175,9 @@ function renderQ(q, n, answers) {
         if (q.svg) return `<div class="row letter"><span class="lt">${esc(it.t)}</span>${selectHtml(q.id, i, opts, user[i] || '')}</div>`;
         if (it.t.includes('___')) {
           const parts = it.t.split('___');
-          return `<div class="row inline"><span>${esc(parts[0])}${selectHtml(q.id, i, opts, user[i] || '', 'sel-inline')}${esc(parts[1])}</span></div>`;
+          return `<div class="row inline"><span>${playBtn(it.t)}${esc(parts[0])}${selectHtml(q.id, i, opts, user[i] || '', 'sel-inline')}${esc(parts[1])}</span></div>`;
         }
-        return `<div class="row"><span class="rt">${esc(it.t)}</span>${selectHtml(q.id, i, opts, user[i] || '')}</div>`;
+        return `<div class="row"><span class="rt">${playBtn(it.t)}${esc(it.t)}</span>${selectHtml(q.id, i, opts, user[i] || '')}</div>`;
       }).join('');
       body = fig + `<div class="rows${q.svg ? ' narrow' : ''}">${rows}</div>`;
     }
@@ -161,7 +190,7 @@ function renderQ(q, n, answers) {
     const user = Array.isArray(ans) ? ans : [];
     body = '<div class="rows">' + q.items.map((it, i) => {
       const u = user[i] || {};
-      return `<div class="row tf"><span class="rt">${it.t}</span>
+      return `<div class="row tf"><span class="rt">${playBtn(it.t)}${it.t}</span>
         <span class="tfbtns" role="radiogroup">
           <label class="tfb"><input type="radio" name="${q.id}-${i}" data-q="${q.id}" data-i="${i}" data-k="v" value="T"${u.v === 'T' ? ' checked' : ''}><span>True</span></label>
           <label class="tfb"><input type="radio" name="${q.id}-${i}" data-q="${q.id}" data-i="${i}" data-k="v" value="F"${u.v === 'F' ? ' checked' : ''}><span>False</span></label>
@@ -172,8 +201,11 @@ function renderQ(q, n, answers) {
   } else if (q.type === 'short') {
     body = `<textarea class="txt area" rows="3" placeholder="Write your answer in English…" data-q="${q.id}" spellcheck="true">${esc(ans || '')}</textarea>`;
   }
+  let say = q.p;
+  if (q.type === 'mc') say += ' ' + shuffled(q.o, state.seed + hashStr(q.id)).map(o => o.replace(/[.!?]+$/, '') + '.').join(' ');
+  if (q.type === 'gap') say += ' ' + q.tpl.replace(/\{\d+\}/g, ' blank ');
   const pts = `<span class="pts">${fmt(q.pts)} ${q.pts === 1 ? 'point' : 'points'}</span>`;
-  return `<article class="q" id="q-${q.id}"><h3><span class="num">${n}</span><span class="qp">${q.p}</span>${pts}</h3>${body}</article>`;
+  return `<article class="q" id="q-${q.id}"><h3>${playBtn(say)}<span class="num">${n}</span><span class="qp">${q.p}</span>${pts}</h3>${body}</article>`;
 }
 
 const isAnswered = (q, a) => {
@@ -284,7 +316,7 @@ function itemFeedback(q, r) {
   if (q.type === 'short') {
     return `<p><span class="lab">Your answer:</span> ${state.answers[q.id] ? esc(state.answers[q.id]) : '<i>(no answer)</i>'}</p>
       <ul class="keys">${r.rows.map(x => `<li class="${x.ok ? 'ok' : 'no'}">${x.ok ? '✓' : '✗'} ${esc(x.t)}</li>`).join('')}</ul>
-      <p><span class="lab ok">Model answer:</span> ${esc(q.model)}</p>
+      <p>${playBtn(q.model)}<span class="lab ok">Model answer:</span> ${esc(q.model)}</p>
       <div class="adjust" data-q="${q.id}"><span class="es">Ajuste de una persona adulta · Adult can adjust the mark:</span>
         ${[[0, '0'], [0.5, '½'], [1, 'full']].map(([v, l]) => `<button class="btn tiny${r.overridden && state.overrides[q.id] === v ? ' on' : ''}" data-act="ov" data-q="${q.id}" data-v="${v}">${l}</button>`).join('')}
         ${r.overridden ? `<button class="btn tiny" data-act="ov" data-q="${q.id}" data-v="auto">auto</button>` : ''}
@@ -328,9 +360,9 @@ function viewResults() {
       <div class="seg"><button class="btn tiny${show === 'mistakes' ? ' on' : ''}" data-act="filter" data-v="mistakes">Only mistakes</button><button class="btn tiny${show === 'all' ? ' on' : ''}" data-act="filter" data-v="all">All questions</button></div></div>
       ${list.filter(q => show === 'all' || t.per[q.id].got < q.pts - 1e-9).map(q => { const r = t.per[q.id]; const st = r.got >= q.pts - 1e-9 ? 'ok' : r.got > 0 ? 'half' : 'no';
         const topics = [...new Set((r.rows || []).filter(x => !x.ok && x.topic).map(x => x.topic).concat(q.topic))].filter(k => TOPICS[k]);
-        return `<article class="fb ${st}"><h3><span class="num">${numOf[q.id]}</span><span class="qp">${q.p}</span><span class="pts">${fmt(Math.round(r.got * 100) / 100)} / ${fmt(q.pts)}</span></h3>
+        return `<article class="fb ${st}"><h3>${playBtn(q.p)}<span class="num">${numOf[q.id]}</span><span class="qp">${q.p}</span><span class="pts">${fmt(Math.round(r.got * 100) / 100)} / ${fmt(q.pts)}</span></h3>
           ${itemFeedback(q, r)}
-          <div class="expl"><span class="lab">💡 Explicación</span><p>${md(q.exp)}</p><p>${topics.map(k => reviewLink(k)).join(' ')}</p></div></article>`; }).join('') || '<p>No mistakes. Well done! 🎉</p>'}
+          <div class="expl"><span class="lab">💡 Explicación</span> ${playBtn(q.exp, 'es', 'Escuchar')}<p>${md(q.exp)}</p><p>${topics.map(k => reviewLink(k)).join(' ')}</p></div></article>`; }).join('') || '<p>No mistakes. Well done! 🎉</p>'}
     </section>
     <nav class="nav"><a class="btn ghost" href="#/">Home</a><button class="btn ghost" data-act="print">🖨 Print</button><a class="btn primary" href="#/test/${state.mode}" data-act="again">Try again</a></nav>
   </main>` + footer();
@@ -342,8 +374,8 @@ function viewReview(key) {
     <p><a href="#/review">← All topics</a></p>
     <section class="card"><h1>${esc(t.title)}</h1><p class="es lead">${esc(t.es)}</p>
       <ul class="src"><li>📘 <b>Book:</b> Natural Science 4, Unit 1, ${esc(t.book)}</li><li>🎮 <b>Game:</b> <a href="${GAME}" target="_blank" rel="noopener">${esc(t.game)}</a> <span class="small">(open the game, choose the mission)</span></li><li class="small">Lessons in the game: ${esc(t.lessons)}</li></ul></section>
-    <section class="card"><h2>Remember</h2><ul class="notes">${nt.en.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>
-    <section class="card"><h2>Words <span class="es">· Vocabulario</span></h2><table class="words">${nt.words.map(([a, b]) => `<tr><td><b>${esc(a)}</b></td><td class="es">${esc(b)}</td></tr>`).join('')}</table></section>
+    <section class="card"><h2>Remember</h2><ul class="notes">${nt.en.map(x => `<li>${playBtn(x)}${esc(x)}</li>`).join('')}</ul></section>
+    <section class="card"><h2>Words <span class="es">· Vocabulario</span></h2><table class="words">${nt.words.map(([a, b]) => `<tr><td>${playBtn(a)}<b>${esc(a)}</b></td><td class="es">${playBtn(b, 'es', 'Escuchar')}${esc(b)}</td></tr>`).join('')}</table></section>
     <nav class="nav"><a class="btn primary" href="#/test/sec-${t.sec}">Practice this topic</a><a class="btn ghost" href="${GAME}" target="_blank" rel="noopener">Open the game ↗</a></nav></main>` + footer();
 }
 function viewReviewList() {
@@ -354,6 +386,7 @@ function viewReviewList() {
 /* ---------- router ---------- */
 function go(h) { if (location.hash === h) route(); else location.hash = h; }
 function route() {
+  stopSpeech();
   const h = location.hash.replace(/^#\/?/, ''), p = h.split('/');
   if (!name && p[0] !== 'name') return viewName();
   window.scrollTo(0, 0);
@@ -378,7 +411,9 @@ function setAnswer(el) {
 app.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.q) setAnswer(e.target); });
 app.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.q && (e.target.type === 'text' || e.target.tagName === 'TEXTAREA')) setAnswer(e.target); });
 app.addEventListener('click', e => {
+  const sp = e.target.closest('[data-say]'); if (sp) { speak(sp); return; }
   const b = e.target.closest('[data-act]'); if (!b) return;
+  stopSpeech();
   const act = b.dataset.act;
   if (act === 'next' || act === 'prev') { state.page += act === 'next' ? 1 : -1; saveState(); viewTest(state.mode); window.scrollTo(0, 0); }
   else if (act === 'finish') finishTest();

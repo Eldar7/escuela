@@ -4,6 +4,10 @@
 a{color:var(--green2)}h1,h2,h3{line-height:1.25;margin:.2em 0 .5em}h1{font-size:1.9rem}h2{font-size:1.3rem}h3{font-size:1.05rem}
 button,select,input,textarea{font:inherit;color:inherit}
 :focus-visible{outline:4px solid var(--accent);outline-offset:3px}
+.play{flex:none;display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;border:2px solid var(--green2);background:#fff;color:var(--green2);font-size:.75rem;line-height:1;cursor:pointer;padding:0 0 0 2px;margin-right:8px;vertical-align:middle}
+.play:hover{background:var(--soft)}.play.on{background:var(--green);color:#fff;padding:0}
+.rt .play,.notes .play,.words .play,.row.inline .play,.expl .play,.fb p .play{width:28px;height:28px;font-size:.65rem;margin-right:6px}
+.q h3 .play,.fb h3 .play{margin-right:0;margin-top:-2px}
 .es{color:var(--muted);font-weight:500}.small{font-size:.85rem}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;max-width:1000px;margin:auto;padding:16px 20px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900;color:var(--ink)}
@@ -65,5 +69,5 @@ button,select,input,textarea{font:inherit;color:inherit}
 .src{padding-left:20px}.notes li{margin-bottom:8px}.words{border-collapse:collapse;width:100%}.words td{padding:7px 10px;border-bottom:1px solid var(--line)}
 .foot{max-width:1000px;margin:0 auto;padding:0 20px 40px;color:var(--muted);font-size:.85rem}
 @media(max-width:700px){body{font-size:16px}.grid2,.grid3{grid-template-columns:1fr}.grid3{gap:10px}.bar2{grid-template-columns:1fr 1fr}.bar2 .track{grid-column:1/-1;order:3}.sel{width:100%}.sel-inline{width:auto}.sel-map{min-width:100px}.row{align-items:stretch}.tfbtns{width:100%}.tfb{flex:1}.tfb span{flex:1;text-align:center}}
-@media print{.top,.nav,.seg,.adjust,.foot{display:none}.card,.fb{break-inside:avoid}body{background:#fff}}
+@media print{.play,.top,.nav,.seg,.adjust,.foot{display:none}.card,.fb{break-inside:avoid}body{background:#fff}}
 @media(prefers-reduced-motion:no-preference){.tile{transition:transform .12s,border-color .12s}}

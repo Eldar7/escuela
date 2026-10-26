@@ -68,6 +68,15 @@ button,select,input,textarea{font:inherit;color:inherit}
 .adjust{margin-top:6px;padding:8px 12px;border:1px dashed var(--line);border-radius:10px}.adjust .btn{margin-right:4px}
 .src{padding-left:20px}.notes li{margin-bottom:8px}.words{border-collapse:collapse;width:100%}.words td{padding:7px 10px;border-bottom:1px solid var(--line)}
 .foot{max-width:1000px;margin:0 auto;padding:0 20px 40px;color:var(--muted);font-size:.85rem}
+.navmain{display:flex;gap:10px;flex-wrap:wrap}.hint{margin:10px 0 0;text-align:right}
+.chk{margin-left:6px;font-size:.8rem;font-weight:800;color:#fff;background:var(--ok);border-radius:999px;padding:2px 12px}
+.banner{background:var(--halfbg);border:1px solid #e8d49a;border-radius:12px;padding:10px 14px;margin:0 0 14px;font-size:.95rem}
+.checkhead{border-color:var(--green2);background:var(--soft)}.checkhead p{margin:.3em 0 0}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 6px}
+.tab{display:flex;flex-direction:column;align-items:center;gap:0;padding:10px 12px;border:2px solid var(--line);border-radius:14px;background:#fff;cursor:pointer;line-height:1.25}
+.tab .tl{font-weight:800;font-size:.9rem;color:var(--muted)}.tab b{font-size:1.5rem}.tab small{color:var(--muted)}
+.tab.on{border-color:var(--green);background:var(--green);color:#fff}.tab.on .tl,.tab.on small{color:#d9ece5}
+.tabnote{margin:0 0 12px}
 @media(max-width:700px){body{font-size:16px}.grid2,.grid3{grid-template-columns:1fr}.grid3{gap:10px}.bar2{grid-template-columns:1fr 1fr}.bar2 .track{grid-column:1/-1;order:3}.sel{width:100%}.sel-inline{width:auto}.sel-map{min-width:100px}.row{align-items:stretch}.tfbtns{width:100%}.tfb{flex:1}.tfb span{flex:1;text-align:center}}
-@media print{.play,.top,.nav,.seg,.adjust,.foot{display:none}.card,.fb{break-inside:avoid}body{background:#fff}}
+@media print{.tabs,.hint,.play,.top,.nav,.seg,.adjust,.foot{display:none}.card,.fb{break-inside:avoid}body{background:#fff}}
 @media(prefers-reduced-motion:no-preference){.tile{transition:transform .12s,border-color .12s}}

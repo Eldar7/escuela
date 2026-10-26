@@ -54,8 +54,18 @@ function hashStr(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0
 
 /* ---------- state ---------- */
 let name = store.get(NAMEKEY, '');
-let state = store.get(KEY, null);            // {mode, page, answers, seed, startedAt, finished, overrides, endedAt}
+let state = store.get(KEY, null);            // {mode, page, answers, first, checked, check, tab, seed, startedAt, finished, overrides:{first,final}, endedAt}
+const clone = x => JSON.parse(JSON.stringify(x ?? null));
+if (state) {                                  // migrate states saved by older versions
+  state.first = state.first || (state.finished ? clone(state.answers || {}) : {});
+  state.checked = state.checked || {};
+  if (!state.overrides || !('final' in state.overrides)) state.overrides = { first: {}, final: state.overrides || {} };
+}
 const saveState = () => store.set(KEY, state);
+// "first try" = the answers a part had the first time the student left it (Next, Check or Finish)
+function snapshotPart(secId) {
+  qList(state.mode).filter(q => q.sec === secId).forEach(q => { if (!(q.id in state.first)) state.first[q.id] = clone(state.answers[q.id]); });
+}
 
 const qList = mode => mode === 'full' ? Q : mode === 'short' ? Q.filter(q => q.s) : Q.filter(q => q.sec === mode.replace('sec-', ''));
 const modeLabel = mode => mode === 'full' ? 'Full test' : mode === 'short' ? 'Short test' : 'Practice · ' + SECTIONS.find(s => s.id === mode.replace('sec-', '')).title;
@@ -63,7 +73,7 @@ const sectionsOf = mode => SECTIONS.filter(s => qList(mode).some(q => q.sec === 
 const validMode = m => m === 'full' || m === 'short' || /^sec-[A-I]$/.test(m);
 
 function newState(mode) {
-  return { mode, page: 0, answers: {}, seed: Math.floor(Math.random() * 1e9), startedAt: Date.now(), finished: false, overrides: {} };
+  return { mode, page: 0, answers: {}, seed: Math.floor(Math.random() * 1e9), startedAt: Date.now(), finished: false, first: {}, checked: {}, check: false, tab: 'first', overrides: { first: {}, final: {} } };
 }
 
 /* ---------- scoring ---------- */
@@ -262,7 +272,7 @@ function viewHome() {
     <section class="card"><h2>Study first <span class="es">· Repasa antes</span></h2>
       <p>Short notes with Spanish translations, the book pages and the game mission for each topic.</p>
       <div class="grid3">${Object.entries(TOPICS).map(([k, t]) => `<a class="tile soft" href="#/review/${k}"><b>${esc(t.title)}</b><span class="es">${esc(t.es)}</span><span>Book ${esc(t.book)}</span></a>`).join('')}</div></section>
-    ${hist.length ? `<section class="card"><h2>Your last tries</h2><table class="hist"><tr><th>Date</th><th>Test</th><th>Score</th><th>Grade</th></tr>${hist.map(h => `<tr><td>${esc(new Date(h.date).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(h.label)}</td><td>${one(h.ten)} / 10</td><td><span class="gpill ${grade(h.ten).cls}">${grade(h.ten).es}</span></td></tr>`).join('')}</table></section>` : ''}
+    ${hist.length ? `<section class="card"><h2>Your last tries</h2><table class="hist"><tr><th>Date</th><th>Test</th><th>First try</th><th>After corrections</th></tr>${hist.map(h => { const f = h.tenFinal ?? h.ten; return `<tr><td>${esc(new Date(h.date).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(h.label)}</td><td>${one(h.ten)} <span class="gpill ${grade(h.ten).cls}">${grade(h.ten).es}</span></td><td>${one(f)} <span class="gpill ${grade(f).cls}">${grade(f).es}</span></td></tr>`; }).join('')}</table></section>` : ''}
   </main>` + footer();
 }
 
@@ -277,15 +287,31 @@ function viewTest(mode) {
   const qs = list.filter(q => q.sec === sec.id);
   const pct = Math.round(state.page / secs.length * 100);
   const last = state.page === secs.length - 1;
+  const seen = qs.some(q => q.id in state.first);
+  const isCheck = !!state.check;
+  let partGot = 0, partMax = 0, cards = '';
+  if (isCheck) cards = qs.map(q => { const r = scoreQ(q, state.answers[q.id], state.overrides.final[q.id]); partGot += r.got; partMax += r.max; return fbCard(q, r, numOf[q.id], state.answers[q.id], null); }).join('');
+  const hint = '<p class="es small hint">Next: seguir sin corregir. · Check: ver ahora las respuestas correctas y las explicaciones de esta parte.</p>';
   app.innerHTML = head() + `<main class="wrap">
     <div class="bar"><div><b>${esc(modeLabel(mode))}</b> · Part ${state.page + 1} of ${secs.length}</div><div class="timer" id="timer" aria-label="Time">⏱ 0:00</div></div>
     <div class="progress" aria-hidden="true"><i style="width:${pct}%"></i></div>
-    <h2 class="sectitle"><span class="secid">${sec.id}</span> ${esc(sec.title)} <span class="es">· ${esc(sec.es)}</span></h2>
-    ${qs.map(q => renderQ(q, numOf[q.id], state.answers)).join('')}
-    <nav class="nav">
-      ${state.page > 0 ? '<button class="btn ghost" data-act="prev">← Back</button>' : '<a class="btn ghost" href="#/">Exit</a>'}
-      ${last ? '<button class="btn primary" data-act="finish">Finish and see my score</button>' : '<button class="btn primary" data-act="next">Next →</button>'}
-    </nav></main>`;
+    <h2 class="sectitle"><span class="secid">${sec.id}</span> ${esc(sec.title)} <span class="es">· ${esc(sec.es)}</span>${isCheck ? '<span class="chk">Checked</span>' : ''}</h2>
+    ${isCheck ? `<section class="card checkhead"><b>Part score: ${fmt(Math.round(partGot * 100) / 100)} / ${fmt(partMax)} points</b>
+        <p class="es">Lee las explicaciones. Puedes corregir tus respuestas y volver a comprobar: tu primer intento queda guardado.</p></section>${cards}
+      <nav class="nav">${state.page > 0 ? '<button class="btn ghost" data-act="prev">← Back</button>' : '<span></span>'}
+        <button class="btn ghost" data-act="fix">✏️ Fix my answers</button>
+        ${last ? '<button class="btn primary" data-act="finish">Finish and see my score</button>' : '<button class="btn primary" data-act="next">Continue →</button>'}
+      </nav>`
+    : `${seen ? '<p class="banner">You have already left this part. Your first try is saved; changes now count in “After corrections”.<br><span class="es">Ya saliste de esta parte: tu primer intento está guardado y los cambios cuentan en «After corrections».</span></p>' : ''}
+      ${qs.map(q => renderQ(q, numOf[q.id], state.answers)).join('')}
+      <nav class="nav">
+        ${state.page > 0 ? '<button class="btn ghost" data-act="prev">← Back</button>' : '<a class="btn ghost" href="#/">Exit</a>'}
+        <span class="navmain">
+          <button class="btn ghost" data-act="check">Check ✓</button>
+          ${last ? '<button class="btn primary" data-act="finish">Finish</button>' : '<button class="btn primary" data-act="next">Next →</button>'}
+        </span>
+      </nav>${hint}`}
+  </main>`;
   tick();
 }
 
@@ -300,9 +326,10 @@ function finishTest() {
   const list = qList(state.mode);
   const missing = list.filter(q => !isAnswered(q, state.answers[q.id])).length;
   if (missing && !confirm(`You have ${missing} question${missing > 1 ? 's' : ''} without any answer. Finish anyway?\n\nTienes ${missing} pregunta${missing > 1 ? 's' : ''} sin responder. ¿Terminar de todas formas?`)) return;
-  state.finished = true; state.endedAt = Date.now();
-  const t = totals(state.mode, state.answers, state.overrides);
-  const hist = store.get(HIST, []); hist.push({ date: Date.now(), label: modeLabel(state.mode), ten: t.ten, got: t.got, max: t.max }); store.set(HIST, hist.slice(-30));
+  sectionsOf(state.mode).forEach(s => snapshotPart(s.id));
+  state.finished = true; state.check = false; state.tab = 'first'; state.endedAt = Date.now();
+  const t1 = totals(state.mode, state.first, state.overrides.first), t2 = totals(state.mode, state.answers, state.overrides.final);
+  const hist = store.get(HIST, []); hist.push({ date: Date.now(), label: modeLabel(state.mode), ten: t1.ten, tenFinal: t2.ten, got: t1.got, max: t1.max }); store.set(HIST, hist.slice(-30));
   saveState(); go('#/results');
 }
 
@@ -311,34 +338,48 @@ function reviewLink(topic, label) {
   return `<a class="rlink" href="#/review/${topic}">📖 Review: ${esc(label || t.title)}</a>`;
 }
 
-function itemFeedback(q, r) {
+function itemFeedback(q, r, ans, ovKey) {
   if (q.type === 'mc') return `<p><span class="lab">Your answer:</span> ${r.rows[0].user ? esc(r.rows[0].user) : '<i>(no answer)</i>'}</p><p><span class="lab ok">Correct answer:</span> ${esc(q.a)}</p>`;
   if (q.type === 'short') {
-    return `<p><span class="lab">Your answer:</span> ${state.answers[q.id] ? esc(state.answers[q.id]) : '<i>(no answer)</i>'}</p>
+    const ov = ovKey ? state.overrides[ovKey] : {};
+    return `<p><span class="lab">Your answer:</span> ${ans ? esc(ans) : '<i>(no answer)</i>'}</p>
       <ul class="keys">${r.rows.map(x => `<li class="${x.ok ? 'ok' : 'no'}">${x.ok ? '✓' : '✗'} ${esc(x.t)}</li>`).join('')}</ul>
-      <p>${playBtn(q.model)}<span class="lab ok">Model answer:</span> ${esc(q.model)}</p>
+      <p>${playBtn(q.model)}<span class="lab ok">Model answer:</span> ${esc(q.model)}</p>` + (ovKey ? `
       <div class="adjust" data-q="${q.id}"><span class="es">Ajuste de una persona adulta · Adult can adjust the mark:</span>
-        ${[[0, '0'], [0.5, '½'], [1, 'full']].map(([v, l]) => `<button class="btn tiny${r.overridden && state.overrides[q.id] === v ? ' on' : ''}" data-act="ov" data-q="${q.id}" data-v="${v}">${l}</button>`).join('')}
-        ${r.overridden ? `<button class="btn tiny" data-act="ov" data-q="${q.id}" data-v="auto">auto</button>` : ''}
-        <div class="es small">La corrección automática busca palabras clave; puede ser injusta con respuestas correctas escritas de otra forma.</div></div>`;
+        ${[[0, '0'], [0.5, '½'], [1, 'full']].map(([v, l]) => `<button class="btn tiny${r.overridden && ov[q.id] === v ? ' on' : ''}" data-act="ov" data-k="${ovKey}" data-q="${q.id}" data-v="${v}">${l}</button>`).join('')}
+        ${r.overridden ? `<button class="btn tiny" data-act="ov" data-k="${ovKey}" data-q="${q.id}" data-v="auto">auto</button>` : ''}
+        <div class="es small">La corrección automática busca palabras clave; puede ser injusta con respuestas correctas escritas de otra forma.</div></div>` : '');
   }
-  const wrong = r.rows.filter(x => !x.ok);
   return `<ul class="items">${r.rows.map(x => `<li class="${x.ok ? 'ok' : x.half ? 'half' : 'no'}"><span class="mark">${x.ok ? '✓' : x.half ? '½' : '✗'}</span>
-    <span class="it">${q.type === 'tf' ? x.t : esc(x.t || '')}${x.t ? ' → ' : ''}<b>${esc(x.user || '—')}</b>${x.ok ? '' : ` <span class="corr">correct: <b>${esc(x.right)}</b></span>`}</span></li>`).join('')}</ul>${wrong.length ? '' : ''}`;
+    <span class="it">${q.type === 'tf' ? x.t : esc(x.t || '')}${x.t ? ' → ' : ''}<b>${esc(x.user || '—')}</b>${x.ok ? '' : ` <span class="corr">correct: <b>${esc(x.right)}</b></span>`}</span></li>`).join('')}</ul>`;
+}
+
+function fbCard(q, r, num, ans, ovKey) {
+  const st = r.got >= q.pts - 1e-9 ? 'ok' : r.got > 0 ? 'half' : 'no';
+  const topics = [...new Set((r.rows || []).filter(x => !x.ok && x.topic).map(x => x.topic).concat(q.topic))].filter(k => TOPICS[k]);
+  return `<article class="fb ${st}"><h3>${playBtn(q.p)}<span class="num">${num}</span><span class="qp">${q.p}</span><span class="pts">${fmt(Math.round(r.got * 100) / 100)} / ${fmt(q.pts)}</span></h3>
+    ${itemFeedback(q, r, ans, ovKey)}
+    <div class="expl"><span class="lab">💡 Explicación</span> ${playBtn(q.exp, 'es', 'Escuchar')}<p>${md(q.exp)}</p><p>${topics.map(k => reviewLink(k)).join(' ')}</p></div></article>`;
 }
 
 function viewResults() {
   if (!state || !state.finished) return go('#/');
   const list = qList(state.mode); let n = 0; const numOf = {}; list.forEach(q => { numOf[q.id] = ++n; });
-  const t = totals(state.mode, state.answers, state.overrides), g = grade(t.ten);
+  const t1 = totals(state.mode, state.first, state.overrides.first), t2 = totals(state.mode, state.answers, state.overrides.final);
+  const tab = state.tab === 'final' ? 'final' : 'first';
+  const t = tab === 'first' ? t1 : t2, ans = tab === 'first' ? state.first : state.answers, g = grade(t.ten);
   const secs = sectionsOf(state.mode);
   const mins = Math.max(1, Math.round(((state.endedAt || Date.now()) - state.startedAt) / 60000));
   const weak = Object.entries(t.byTopic).filter(([, b]) => b.max && b.got / b.max < 0.75).sort((a, b) => a[1].got / a[1].max - b[1].got / b[1].max);
   const full = list.filter(q => t.per[q.id].got >= q.pts - 1e-9).length;
   const show = (state.filter || 'mistakes');
+  const g1 = grade(t1.ten), g2 = grade(t2.ten), diff = t2.ten - t1.ten;
+  const tabBtn = (id, label, tt, gg) => `<button type="button" role="tab" aria-selected="${tab === id}" class="tab${tab === id ? ' on' : ''}" data-act="tab" data-v="${id}"><span class="tl">${label}</span><b>${one(tt.ten)} / 10</b><small>${gg.es}</small></button>`;
   app.innerHTML = head() + `<main class="wrap">
+    <div class="tabs" role="tablist" aria-label="Results">${tabBtn('first', 'First try', t1, g1)}${tabBtn('final', 'After corrections', t2, g2)}</div>
+    <p class="tabnote es small">${tab === 'first' ? 'Primer intento: tus respuestas la primera vez que saliste de cada parte.' : (Math.abs(diff) < 0.05 ? 'No cambiaste ninguna respuesta después de la primera vez.' : `Después de corregir: ${diff > 0 ? '+' : ''}${one(diff)} puntos sobre 10 respecto al primer intento.`)}</p>
     <section class="card result ${g.cls}">
-      <p class="kicker">${esc(modeLabel(state.mode))} · ${mins} min</p>
+      <p class="kicker">${esc(modeLabel(state.mode))} · ${mins} min · ${tab === 'first' ? 'First try' : 'After corrections'}</p>
       <h1>${g.ab === 'SB' || g.ab === 'NT' ? 'Great work' : 'Good effort'}, ${esc(name)}!</h1>
       <div class="scores">
         <div class="big10"><b>${one(t.ten)}</b><span>/ 10</span></div>
@@ -358,11 +399,7 @@ function viewResults() {
     </section>
     <section class="card"><div class="rhead"><h2>Your answers <span class="es">· Tus respuestas</span></h2>
       <div class="seg"><button class="btn tiny${show === 'mistakes' ? ' on' : ''}" data-act="filter" data-v="mistakes">Only mistakes</button><button class="btn tiny${show === 'all' ? ' on' : ''}" data-act="filter" data-v="all">All questions</button></div></div>
-      ${list.filter(q => show === 'all' || t.per[q.id].got < q.pts - 1e-9).map(q => { const r = t.per[q.id]; const st = r.got >= q.pts - 1e-9 ? 'ok' : r.got > 0 ? 'half' : 'no';
-        const topics = [...new Set((r.rows || []).filter(x => !x.ok && x.topic).map(x => x.topic).concat(q.topic))].filter(k => TOPICS[k]);
-        return `<article class="fb ${st}"><h3>${playBtn(q.p)}<span class="num">${numOf[q.id]}</span><span class="qp">${q.p}</span><span class="pts">${fmt(Math.round(r.got * 100) / 100)} / ${fmt(q.pts)}</span></h3>
-          ${itemFeedback(q, r)}
-          <div class="expl"><span class="lab">💡 Explicación</span> ${playBtn(q.exp, 'es', 'Escuchar')}<p>${md(q.exp)}</p><p>${topics.map(k => reviewLink(k)).join(' ')}</p></div></article>`; }).join('') || '<p>No mistakes. Well done! 🎉</p>'}
+      ${list.filter(q => show === 'all' || t.per[q.id].got < q.pts - 1e-9).map(q => fbCard(q, t.per[q.id], numOf[q.id], ans[q.id], tab)).join('') || '<p>No mistakes. Well done! 🎉</p>'}
     </section>
     <nav class="nav"><a class="btn ghost" href="#/">Home</a><button class="btn ghost" data-act="print">🖨 Print</button><a class="btn primary" href="#/test/${state.mode}" data-act="again">Try again</a></nav>
   </main>` + footer();
@@ -415,10 +452,16 @@ app.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   stopSpeech();
   const act = b.dataset.act;
-  if (act === 'next' || act === 'prev') { state.page += act === 'next' ? 1 : -1; saveState(); viewTest(state.mode); window.scrollTo(0, 0); }
+  if (act === 'next' || act === 'prev') {
+    if (act === 'next') snapshotPart(sectionsOf(state.mode)[state.page].id);
+    state.page += act === 'next' ? 1 : -1; state.check = false; saveState(); viewTest(state.mode); window.scrollTo(0, 0);
+  }
+  else if (act === 'check') { const sid = sectionsOf(state.mode)[state.page].id; snapshotPart(sid); state.checked[sid] = true; state.check = true; saveState(); viewTest(state.mode); window.scrollTo(0, 0); }
+  else if (act === 'fix') { state.check = false; saveState(); viewTest(state.mode); window.scrollTo(0, 0); }
+  else if (act === 'tab') { state.tab = b.dataset.v; saveState(); viewResults(); window.scrollTo(0, 0); }
   else if (act === 'finish') finishTest();
   else if (act === 'discard') { if (confirm('Start over? Your current answers will be deleted.\n¿Empezar de nuevo? Se borrarán las respuestas actuales.')) { state = null; store.del(KEY); viewHome(); } }
-  else if (act === 'ov') { const v = b.dataset.v; if (v === 'auto') delete state.overrides[b.dataset.q]; else state.overrides[b.dataset.q] = Number(v); saveState(); const y = window.scrollY; viewResults(); window.scrollTo(0, y); }
+  else if (act === 'ov') { const v = b.dataset.v, o = state.overrides[b.dataset.k || 'final']; if (v === 'auto') delete o[b.dataset.q]; else o[b.dataset.q] = Number(v); saveState(); const y = window.scrollY; viewResults(); window.scrollTo(0, y); }
   else if (act === 'filter') { state.filter = b.dataset.v; saveState(); const y = window.scrollY; viewResults(); window.scrollTo(0, y); }
   else if (act === 'print') window.print();
   else if (act === 'again') { state = newState(state.mode); saveState(); }
